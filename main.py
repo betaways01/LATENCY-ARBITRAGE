@@ -34,6 +34,7 @@ if terminal_receiver2.handle is None:
 
 # set difference between broker's prices
 DELTA_TICKS = 0.0003
+print(f'DELTA_TICKS = {DELTA_TICKS}')
 # set commands to clients
 OP_BUY = 0
 OP_SELL = 1
