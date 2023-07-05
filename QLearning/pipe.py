@@ -1,72 +1,79 @@
-# check if necessary packages are installed and import
-try:
-    from win32file import *
-    from win32pipe import *
-    from win32api import *
-except ImportError:
-    print("Please install the 'pywin32' module by running 'pip install pywin32==300'")
-    import sys
-    sys.exit(1)
-
+# import your NamedPipe class
+from pipe_conn import NamedPipe
+from time import gmtime, strftime
 import logging
 
-# Constants
-INVALID_HANDLE_VALUE = -1
-ERROR_PIPE_BUSY = 231
-ERROR_MORE_DATA = 234
-BUFSIZE = 4096
-NMPWAIT_USE_DEFAULT_WAIT = 0x00000000
-PIPE_ACCESS_DUPLEX = 0x3
-PIPE_TYPE_MESSAGE = 0x4
-PIPE_READMODE_MESSAGE = 0x2
-PIPE_WAIT = 0
-PIPE_UNLIMITED_INSTANCES = 255
+# setup logging
+logging.basicConfig(filename='app.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s', level=logging.DEBUG)
 
-class Pipe:
-    def __init__(self, name):
-        try:
-            self.handle = CreateNamedPipe("\\\\.\\pipe\\" + name,
-                                          PIPE_ACCESS_DUPLEX,
-                                          PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
-                                          PIPE_UNLIMITED_INSTANCES,
-                                          1024,
-                                          1024,
-                                          0,
-                                          None)
-        except PermissionError:
-            logging.error(f"Lack of permissions to create pipe '{name}'.")
-            self.handle = None
-        except WindowsError as e:
-            if e.winerror == ERROR_PIPE_BUSY:
-                logging.error(f"Pipe '{name}' is already in use.")
-            elif e.winerror == ERROR_MORE_DATA:
-                logging.error(f"System limit for number of pipes has been reached.")
-            self.handle = None
+# Create named pipes for all terminals
+logging.debug('Creating named pipes...')
+
+# Create named pipes for all terminals
+terminal_sender = NamedPipe("send")
+terminal_sender.create_pipe_server()
+terminal_sender2 = NamedPipe("send2")
+terminal_sender2.create_pipe_server()
+
+terminal_receiver = NamedPipe("gerchik")
+terminal_receiver.create_pipe_server()
+terminal_receiver2 = NamedPipe("tickmill")
+terminal_receiver2.create_pipe_server()
+
+# Set difference between broker's prices
+DELTA_TICKS = 0.0003
+print(f'DELTA_TICKS = {DELTA_TICKS}')
+
+# Set commands to clients
+OP_BUY = 0
+OP_SELL = 1
+
+# Attempt to connect to the pipes
+logging.debug("Attempting to connect to pipes...")
+
+terminal_sender.connect_pipe()
+terminal_sender2.connect_pipe()
+terminal_receiver.connect_pipe()
+terminal_receiver2.connect_pipe()
+
+while True:
+    data1 = terminal_sender.read_pipe().split(',')
+    data2 = terminal_sender2.read_pipe().split(',')
+    logging.debug(f'Data received: {data1} and {data2}')
+
+    # convert string data to float
+    for i in range(2, 5):
+        data1[i] = float(data1[i])
+        data2[i] = float(data2[i])
+
+    mid1, buy_orders1, sell_orders1 = data1[2], data1[3], data1[4]
+    mid2, buy_orders2, sell_orders2 = data2[2], data2[3], data2[4]
+
+    # write commands back to the terminals
+    if data1[1] == data2[1]:
+        if mid1 - mid2 > DELTA_TICKS:
+            terminal_receiver.write_pipe([OP_BUY])
+            print(strftime("%Y-%m-%d %H:%M:%S", gmtime()), data2[0], 'BUY', data2[1])
+            terminal_receiver2.write_pipe([OP_SELL])
+            print(strftime("%Y-%m-%d %H:%M:%S", gmtime()), data1[0], 'SELL', data1[1])
+
+        elif mid2 - mid1 > DELTA_TICKS:
+            terminal_receiver.write_pipe([OP_SELL])
+            print(strftime("%Y-%m-%d %H:%M:%S", gmtime()), data2[0], 'SELL', data2[1])
+            terminal_receiver2.write_pipe([OP_BUY])
+            print(strftime("%Y-%m-%d %H:%M:%S", gmtime()), data1[0], 'BUY', data1[1])
+
+        # handle cases where mid1 and mid2 are close to each other
+        elif DELTA_TICKS / 3 > mid1 - mid2 > 0:
+            terminal_receiver.write_pipe(2)
+            terminal_receiver2.write_pipe(2)
+
+        elif DELTA_TICKS / 3 > mid2 - mid1 > 0:
+            terminal_receiver2.write_pipe(2)
+            terminal_receiver.write_pipe(2)
+
         else:
-            if self.handle == INVALID_HANDLE_VALUE:
-                logging.error(f"Failed to create pipe '{name}': {GetLastError()}")
-                self.handle = None
+            terminal_receiver.write_pipe('-')
+            terminal_receiver2.write_pipe('-')
 
-    def is_connect(self):
-        if ConnectNamedPipe(self.handle) == 0:
-            return True
-        else:
-            return False
-
-    def get_handle(self):
-        return self.handle
-
-    def read(self, size):
-        return ReadFile(self.handle, size)
-
-    def read_as_string(self, size):
-        data = ReadFile(self.handle, size)
-        string = bytearray(data[1]).decode().strip()
-        return str(string)
-
-    def write(self, data):
-        WriteFile(self.handle, bytearray(data, 'cp1251'))
-        FlushFileBuffers(self.handle)
-        #SetFilePointer(self.handle, 0, FILE_END)
-        '''if wr[0] != 0:
-            print(GetLastError())'''
+logging.debug('Operation ended.')
