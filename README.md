@@ -6,7 +6,7 @@ Python and MT4 system for latency arbitrage
 
 **Now, one can use this `NamedPipe` class in an application to facilitate the communication between Python scripts and MT4 terminals.**
 
-Let's continue with the next steps:
+Continue with the next steps:
 
 1. Create Scripts to Connect to Each Terminal: one will want to create separate scripts for each terminal. These scripts will use the NamedPipe class we've defined to connect to the named pipe associated with each terminal.
 
